@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Everything shared — the versions of other features, plugins, the registry — comes from the parent,
+         published from RaindanceMC/framework. -->
+    <parent>
+        <groupId>de.raindancer.modules</groupId>
+        <artifactId>rains-flexible-modules</artifactId>
+        <version>2.0.0</version>
+        <relativePath/>
+    </parent>
+
+    <artifactId>network-proxy-build</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>RaindanceMC/network-proxy (build)</name>
+
+    <!-- This repository's own versions: bump them here. CI publishes a new version on the next push to master. -->
+    <properties>
+        <network-proxy.version>1.0.0</network-proxy.version>
+    </properties>
+
+    <modules>
+        <module>network-proxy</module>
+    </modules>
+
+    <!-- Here as well as in the parent, because the parent itself has to be found somewhere. -->
+    <repositories>
+        <repository>
+            <id>papermc</id>
+            <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+        <!--
+          RainsCore itself: published here by its own CI on every version bump (see its build.yml),
+          and read from here rather than from a sibling checkout built by hand. The id has to be
+          exactly packages-releases — that is the server block a build's settings.xml carries the
+          read credentials under, the same one distributionManagement below writes with.
+        -->
+        <repository>
+            <id>packages-releases</id>
+            <url>https://packages.tstieh.de/releases</url>
+        </repository>
+        <!-- RainsCore's -SNAPSHOT between releases (2.0.0-SNAPSHOT), published by its CI on every master push. -->
+        <repository>
+            <id>packages-snapshots</id>
+            <url>https://packages.tstieh.de/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+        <!-- GrimAC's API: the moderation module's anti-cheat feeds Grim's flags into the network. Release
+             versions live in Grim's "snapshots" repository. -->
+        <repository>
+            <id>grimac</id>
+            <url>https://repo.grim.ac/snapshots</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+</project>

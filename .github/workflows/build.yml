@@ -1,0 +1,106 @@
+name: Build
+
+# Every push and pull request builds and tests this repository — only this one, so it takes a few minutes. A push to
+# master also publishes every module and plugin version that is not in packages.tstieh.de yet.
+# The end-to-end scenarios (a real Paper server and bots) run only when asked: Actions → Build → Run workflow.
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REPOSILITE_USERNAME: ${{ vars.REPOSILITE_USERNAME }}
+  REPOSILITE_PASSWORD: ${{ secrets.REPOSILITE_PASSWORD }}
+  # Reposilite's TLS termination trips a TLSv1.3/SNI handshake bug in Maven's HTTP transport — pin TLSv1.2.
+  MAVEN_OPTS: -Djdk.tls.client.protocols=TLSv1.2
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # 25: paper-api 26.x ships Java 25 class files; an older JDK fails while resolving, not compiling.
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          server-id: packages-releases
+          server-username: REPOSILITE_USERNAME
+          server-password: REPOSILITE_PASSWORD
+
+      - name: Credentials for the snapshots repository
+        run: |
+          cat > ~/.m2/settings.xml <<'XML'
+          <settings>
+            <servers>
+              <server><id>packages-releases</id><username>${env.REPOSILITE_USERNAME}</username><password>${env.REPOSILITE_PASSWORD}</password></server>
+              <server><id>packages-snapshots</id><username>${env.REPOSILITE_USERNAME}</username><password>${env.REPOSILITE_PASSWORD}</password></server>
+            </servers>
+          </settings>
+          XML
+
+      # What modules-api's EveryModuleKeepsTheContractTest checked across the monorepo, now per repository: a module
+      # that ships wording is held to WordingContract — absent, a player once read "rainshome</white> is set, here."
+      - name: Every module with wording keeps the wording contract
+        run: |
+          set -euo pipefail
+          for module in */; do
+            module="${module%/}"
+            [ -d "$module/src/main/resources" ] || continue
+            if find "$module/src/main/resources" -name messages.yml | grep -q . &&                ! grep -rqs "implements WordingContract" "$module/src/test"; then
+              echo "::error::$module ships messages.yml but nothing implements WordingContract for it"; exit 1
+            fi
+          done
+
+      # install, not verify: a plugin shades its module out of the local repository, and StandaloneJarTest checks
+      # that what ended up in the jar is what was just compiled.
+      - name: Build and run tests
+        run: mvn --batch-mode --no-transfer-progress -U -T 1C install
+
+      - name: Keep the test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-${{ github.sha }}
+          path: '**/target/surefire-reports/'
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Releases are immutable in the registry, so a version is published exactly once: whatever is not there yet.
+      - name: Publish new versions to packages.tstieh.de
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          set -euo pipefail
+          todo=""
+          for module in network-proxy; do
+            if [ "$module" = . ]; then flags="-N"; else flags="-pl $module"; fi
+            artifact=$(mvn -B -q $flags help:evaluate -Dexpression=project.artifactId -DforceStdout)
+            version=$(mvn -B -q $flags help:evaluate -Dexpression=project.version -DforceStdout)
+            url="https://packages.tstieh.de/releases/de/raindancer/modules/$artifact/$version/$artifact-$version.pom"
+            code=$(curl -s -o /dev/null -w '%{http_code}' -u "$REPOSILITE_USERNAME:$REPOSILITE_PASSWORD" "$url")
+            echo "$artifact $version: $code"
+            if [ "$code" = 404 ]; then todo="$todo $module"; fi
+          done
+          for module in $todo; do
+            if [ "$module" = . ]; then
+              mvn --batch-mode --no-transfer-progress -N -DskipTests deploy
+            else
+              mvn --batch-mode --no-transfer-progress -pl "$module" -DskipTests deploy
+            fi
+          done

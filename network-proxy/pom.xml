@@ -6,7 +6,7 @@
 
     <parent>
         <groupId>de.raindancer.modules</groupId>
-        <artifactId>rains-flexible-modules</artifactId>
+        <artifactId>network-proxy-build</artifactId>
         <version>1.0.0</version>
     </parent>
 

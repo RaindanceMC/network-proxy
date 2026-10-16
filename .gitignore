@@ -1,0 +1,38 @@
+target/
+*.iml
+.idea/
+.serena/
+
+# What a Paper server drops into whatever directory it is started from. scripts/live-server-test.sh
+# boots into its own temporary directory and never leaves any of this behind, but a server started
+# by hand from the repository root does — and `git add -A` then sweeps 90 MB of jars into a commit.
+# That has happened once; these lines are so it cannot happen twice.
+cache/
+libraries/
+versions/
+logs/
+plugins/
+world/
+world_nether/
+world_the_end/
+eula.txt
+server.properties
+paper.jar
+banned-ips.json
+banned-players.json
+ops.json
+whitelist.json
+usercache.json
+permissions.yml
+bukkit.yml
+spigot.yml
+paper-global.yml
+
+# The e2e run's download cache in CI (RAINS_E2E_CACHE): Paper, the game's jars and assets — never committed.
+.e2e-cache/
+
+# flatten-maven-plugin's output: what is published.
+.flattened-pom.xml
+
+# e2e: other plugins fetched from the registry.
+jars/
