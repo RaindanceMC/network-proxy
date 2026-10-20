@@ -12,28 +12,47 @@ import java.util.Locale;
 
 /**
  * {@code /hub} (and {@code /lobby}): back to the hub from anywhere on the network. On the proxy, so it answers before
- * any backend sees the command — RainsCore's own {@code /hub} panel stays reachable as {@code /smp}.
+ * any backend sees the command — RainsCore's own {@code /hub} panel stays reachable as {@code /smp}. On the hub
+ * itself it is handed to the hub as its spawn command: a parkour course there is a world of its own, still "the hub".
  */
 final class HubCommand implements SimpleCommand {
 
-    enum Answer { GO, ALREADY_THERE, PLAYERS_ONLY }
+    enum Answer { GO, TO_SPAWN, ALREADY_THERE, PLAYERS_ONLY }
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
 
     private final ProxyServer proxy;
     private final String hub;
+    private final String spawn;
 
-    HubCommand(ProxyServer proxy, String hub) {
+    /** @param spawnCommand what takes somebody on the hub to its spawn, blank = nothing does */
+    HubCommand(ProxyServer proxy, String hub, String spawnCommand) {
         this.proxy = proxy;
         this.hub = hub;
+        this.spawn = chatInput(spawnCommand);
     }
 
-    /** @param current the server they are on, {@code null} while still connecting */
-    static Answer answer(boolean isPlayer, String current, String hub) {
+    /**
+     * @param current the server they are on, {@code null} while still connecting
+     * @param spawn   the hub's spawn command, blank = none
+     */
+    static Answer answer(boolean isPlayer, String current, String hub, String spawn) {
         if (!isPlayer) {
             return Answer.PLAYERS_ONLY;
         }
-        return current != null && current.equalsIgnoreCase(hub) ? Answer.ALREADY_THERE : Answer.GO;
+        if (current == null || !current.equalsIgnoreCase(hub)) {
+            return Answer.GO;
+        }
+        return spawn.isBlank() ? Answer.ALREADY_THERE : Answer.TO_SPAWN;
+    }
+
+    /** {@code spawn} or {@code /spawn} → {@code /spawn}; {@code null} or blank → blank. */
+    static String chatInput(String command) {
+        if (command == null || command.isBlank()) {
+            return "";
+        }
+        String stripped = command.strip();
+        return stripped.startsWith("/") ? stripped : "/" + stripped;
     }
 
     /** {@code hub|lobby} → [hub, lobby]; {@code null} = the defaults, blank = none. */
@@ -50,8 +69,10 @@ final class HubCommand implements SimpleCommand {
         Player player = invocation.source() instanceof Player p ? p : null;
         String current = player == null ? null
                 : player.getCurrentServer().map(ServerConnection::getServerInfo).map(info -> info.getName()).orElse(null);
-        switch (answer(player != null, current, hub)) {
+        switch (answer(player != null, current, hub, spawn)) {
             case PLAYERS_ONLY -> invocation.source().sendMessage(MM.deserialize("<red>Only players can go to the hub.</red>"));
+            // straight to the hub server, not through the proxy's commands again
+            case TO_SPAWN -> player.spoofChatInput(spawn);
             case ALREADY_THERE -> player.sendMessage(MM.deserialize("<gray>You're on the hub already.</gray>"));
             case GO -> proxy.getServer(hub).ifPresentOrElse(
                     server -> player.createConnectionRequest(server).fireAndForget(),

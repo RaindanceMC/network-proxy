@@ -10,24 +10,38 @@ class HubCommandTest {
 
     @Test
     void aPlayerElsewhereGoesToTheHub() {
-        assertEquals(HubCommand.Answer.GO, HubCommand.answer(true, "lillyxoxo", "hub"));
-        assertEquals(HubCommand.Answer.GO, HubCommand.answer(true, "arena", "hub"));
+        assertEquals(HubCommand.Answer.GO, HubCommand.answer(true, "lillyxoxo", "hub", "spawn"));
+        assertEquals(HubCommand.Answer.GO, HubCommand.answer(true, "arena", "hub", "spawn"));
     }
 
     @Test
-    void onTheHubAlreadyThereIsNowhereToGo() {
-        assertEquals(HubCommand.Answer.ALREADY_THERE, HubCommand.answer(true, "hub", "hub"));
-        assertEquals(HubCommand.Answer.ALREADY_THERE, HubCommand.answer(true, "HUB", "hub"));
+    void onTheHubTheHubItselfBringsThemToItsSpawn() {
+        // a parkour course on the hub is a world of its own: "already there" left them stuck on it
+        assertEquals(HubCommand.Answer.TO_SPAWN, HubCommand.answer(true, "hub", "hub", "spawn"));
+        assertEquals(HubCommand.Answer.TO_SPAWN, HubCommand.answer(true, "HUB", "hub", "spawn"));
+    }
+
+    @Test
+    void withoutASpawnCommandTheHubOnlySaysTheyAreThere() {
+        assertEquals(HubCommand.Answer.ALREADY_THERE, HubCommand.answer(true, "hub", "hub", ""));
+    }
+
+    @Test
+    void theSpawnCommandIsSentWithItsSlash() {
+        assertEquals("/spawn", HubCommand.chatInput("spawn"));
+        assertEquals("/spawn", HubCommand.chatInput(" /spawn "));
+        assertEquals("", HubCommand.chatInput(null));
+        assertEquals("", HubCommand.chatInput("  "));
     }
 
     @Test
     void stillConnectingIsSentAsWell() {
-        assertEquals(HubCommand.Answer.GO, HubCommand.answer(true, null, "hub"));
+        assertEquals(HubCommand.Answer.GO, HubCommand.answer(true, null, "hub", "spawn"));
     }
 
     @Test
     void theConsoleIsNoPlayer() {
-        assertEquals(HubCommand.Answer.PLAYERS_ONLY, HubCommand.answer(false, null, "hub"));
+        assertEquals(HubCommand.Answer.PLAYERS_ONLY, HubCommand.answer(false, null, "hub", "spawn"));
     }
 
     @Test

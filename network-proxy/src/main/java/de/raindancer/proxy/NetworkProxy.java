@@ -71,7 +71,7 @@ public final class NetworkProxy {
         if (!commands.isEmpty()) {
             proxy.getCommandManager().register(proxy.getCommandManager().metaBuilder(commands.getFirst())
                     .aliases(commands.subList(1, commands.size()).toArray(String[]::new)).plugin(this).build(),
-                    new HubCommand(proxy, hub));
+                    new HubCommand(proxy, hub, config.getProperty("hub-spawn-command", "spawn")));
         }
         String host = config.getProperty("database.host", "").strip();
         if (host.isEmpty()) {
@@ -132,6 +132,9 @@ public final class NetworkProxy {
                     shutdown-messages=Server closed|Server is restarting
                     # Commands that send a player to the hub from anywhere, separated by |. Blank = none.
                     hub-commands=hub|lobby
+                    # On the hub those commands run this one there instead, e.g. off a parkour course. Blank = only
+                    # "you're on the hub already".
+                    hub-spawn-command=spawn
                     # The network's database, as in each server's plugins/RainsCore/network.yml. Bans are refused here,
                     # before any server sees the player. Blank host = only the servers check. RAINS_DB_HOST,
                     # RAINS_DB_PORT, RAINS_DB_NAME, RAINS_DB_USER, RAINS_DB_PASSWORD, RAINS_DB_SSLMODE override these.

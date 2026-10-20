@@ -22,6 +22,7 @@ class NetworkProxyConfigTest {
         Properties first = NetworkProxy.config(file, Map.of());
         assertThat(file).exists();
         assertThat(first.getProperty("hub")).isEqualTo("hub");
+        assertThat(first.getProperty("hub-spawn-command")).isEqualTo("spawn");
         assertThat(first.getProperty("database.host")).isEmpty();
         assertThat(first.getProperty("database.namespace")).isEqualTo("core");
 
