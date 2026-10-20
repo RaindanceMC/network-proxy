@@ -1,0 +1,6 @@
+id: rainsgeyserhandover
+name: RainsGeyserHandover
+main: de.raindancer.geyser.GeyserHandover
+api: ${geyser.api.version}
+version: ${project.version}
+authors: [Raindancer118]

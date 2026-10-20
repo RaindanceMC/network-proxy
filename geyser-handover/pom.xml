@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>de.raindancer.modules</groupId>
+        <artifactId>network-proxy-build</artifactId>
+        <version>1.0.0</version>
+    </parent>
+    <artifactId>geyser-handover</artifactId>
+    <version>${geyser-handover.version}</version>
+    <packaging>jar</packaging>
+    <name>RainsGeyserHandover</name>
+    <description>
+        Geyser extension: when a Java proxy hands a player over to another server (Minecraft's transfer), the
+        Bedrock player follows — to the same host on Bedrock's port, or where config.properties maps it.
+    </description>
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.testRelease>21</maven.compiler.testRelease>
+        <!-- The Geyser API the extension is built against; extension.yml asks for the same. -->
+        <geyser.api.version>2.12.0</geyser.api.version>
+    </properties>
+    <repositories>
+        <repository>
+            <id>opencollab</id>
+            <url>https://repo.opencollab.dev/main/</url>
+        </repository>
+    </repositories>
+    <dependencies>
+        <dependency>
+            <groupId>org.geysermc.geyser</groupId>
+            <artifactId>api</artifactId>
+            <version>${geyser.api.version}-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <finalName>RainsGeyserHandover-${project.version}</finalName>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+    </build>
+</project>

@@ -20,11 +20,13 @@
 
     <!-- This repository's own versions: bump them here. CI publishes a new version on the next push to master. -->
     <properties>
-        <network-proxy.version>1.0.0</network-proxy.version>
+        <network-proxy.version>1.1.0</network-proxy.version>
+        <geyser-handover.version>1.0.0</geyser-handover.version>
     </properties>
 
     <modules>
         <module>network-proxy</module>
+        <module>geyser-handover</module>
     </modules>
 
     <!-- Here as well as in the parent, because the parent itself has to be found somewhere. -->

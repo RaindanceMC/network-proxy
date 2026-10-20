@@ -88,7 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           todo=""
-          for module in network-proxy; do
+          for module in network-proxy geyser-handover; do
             if [ "$module" = . ]; then flags="-N"; else flags="-pl $module"; fi
             artifact=$(mvn -B -q $flags help:evaluate -Dexpression=project.artifactId -DforceStdout)
             version=$(mvn -B -q $flags help:evaluate -Dexpression=project.version -DforceStdout)
