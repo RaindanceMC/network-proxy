@@ -20,7 +20,7 @@
 
     <!-- This repository's own versions: bump them here. CI publishes a new version on the next push to master. -->
     <properties>
-        <network-proxy.version>1.2.0</network-proxy.version>
+        <network-proxy.version>1.3.0</network-proxy.version>
         <geyser-handover.version>1.0.0</geyser-handover.version>
     </properties>
 

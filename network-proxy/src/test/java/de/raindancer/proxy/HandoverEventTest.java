@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +57,7 @@ class HandoverEventTest {
                 hub=hub
                 handover.arena=arena.lillyyxoxo.net:25565
                 handover.ctf=ctf.lillyyxoxo.net
+                handover.stay=proxy-2.lillyyxoxo.net
                 """);
         plugin = new NetworkProxy(proxy, log, folder);
         plugin.onStart(mock(ProxyInitializeEvent.class));
@@ -132,6 +134,18 @@ class HandoverEventTest {
         event.setResult(ServerPreConnectEvent.ServerResult.denied());
         plugin.onPreConnect(event);
 
+        verify(player, never()).transferToHost(any());
+    }
+
+    @Test
+    @DisplayName("somebody who came in by a stay address stays on this proxy, relayed")
+    void stayAddressIsRelayed() {
+        Player player = player(JAVA, ProtocolVersion.MINECRAFT_1_21_4);
+        when(player.getVirtualHost()).thenReturn(Optional.of(InetSocketAddress.createUnresolved("proxy-2.lillyyxoxo.net", 25565)));
+        ServerPreConnectEvent event = new ServerPreConnectEvent(player, server("arena"), server("hub"));
+        plugin.onPreConnect(event);
+
+        assertThat(event.getResult().isAllowed()).isTrue();
         verify(player, never()).transferToHost(any());
     }
 

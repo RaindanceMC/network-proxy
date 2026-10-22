@@ -97,4 +97,17 @@ class HandoverTest {
         assertThat(Handover.isBedrock(UUID.fromString("00000000-0000-0000-0009-01f51b030beb"))).isTrue();
         assertThat(Handover.isBedrock(UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"))).isFalse();
     }
+
+    @Test
+    @DisplayName("handover.stay: who came in by one of those addresses is never handed over, the rest are")
+    void stayHosts() {
+        Handover fra = handover("handover.lillyxoxo=survival.lillyyxoxo.net:25567",
+                "handover.stay=proxy-2.lillyyxoxo.net, Proxy-2.lillyyxoxo.de");
+        assertThat(fra.decide("lillyxoxo", true, true, false, "proxy-2.lillyyxoxo.net").handOver()).isFalse();
+        assertThat(fra.decide("lillyxoxo", true, true, false, "PROXY-2.lillyyxoxo.de.").handOver())
+                .as("case and a trailing dot do not matter").isFalse();
+        assertThat(fra.decide("lillyxoxo", true, true, false, "arena.lillyyxoxo.net").handOver()).isTrue();
+        assertThat(fra.decide("lillyxoxo", true, true, false, null).handOver()).isTrue();
+        assertThat(fra.servers()).containsOnlyKeys("lillyxoxo");
+    }
 }

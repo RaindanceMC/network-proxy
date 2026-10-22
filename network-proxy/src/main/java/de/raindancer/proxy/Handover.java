@@ -1,11 +1,13 @@
 package de.raindancer.proxy;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -17,12 +19,16 @@ import java.util.UUID;
  * <p>Relayed as before, through the address in velocity.toml: the first server of a login (the client cannot be
  * transferred before it is in), clients older than 1.20.5, and Bedrock players with {@code handover.bedrock=false}
  * — Geyser drops a transferred Bedrock player unless RainsGeyserHandover runs on it.
+ *
+ * <p>{@code handover.stay=host[,host…]}: players who came in by one of these addresses are never handed over, so a
+ * second way into the network (a proxy closer to some players) keeps them on it for every server.
  */
 public final class Handover {
 
     static final int MINECRAFT_PORT = 25565;
     private static final String PREFIX = "handover.";
     private static final String BEDROCK = "bedrock";
+    private static final String STAY = "stay";
 
     public record Decision(boolean handOver, String host, int port) {
         static final Decision RELAY = new Decision(false, null, 0);
@@ -33,11 +39,13 @@ public final class Handover {
 
     private final Map<String, Target> servers;
     private final boolean bedrock;
+    private final Set<String> stay;
     private final List<String> problems;
 
-    private Handover(Map<String, Target> servers, boolean bedrock, List<String> problems) {
+    private Handover(Map<String, Target> servers, boolean bedrock, Set<String> stay, List<String> problems) {
         this.servers = servers;
         this.bedrock = bedrock;
+        this.stay = stay;
         this.problems = problems;
     }
 
@@ -45,7 +53,7 @@ public final class Handover {
         Map<String, Target> servers = new LinkedHashMap<>();
         List<String> problems = new ArrayList<>();
         for (String key : config.stringPropertyNames()) {
-            if (!key.startsWith(PREFIX) || key.equals(PREFIX + BEDROCK)) {
+            if (!key.startsWith(PREFIX) || key.equals(PREFIX + BEDROCK) || key.equals(PREFIX + STAY)) {
                 continue;
             }
             String server = key.substring(PREFIX.length()).strip().toLowerCase(Locale.ROOT);
@@ -57,7 +65,13 @@ public final class Handover {
             }
         }
         boolean bedrock = !config.getProperty(PREFIX + BEDROCK, "true").strip().equalsIgnoreCase("false");
-        return new Handover(Map.copyOf(servers), bedrock, List.copyOf(problems));
+        Set<String> stay = new HashSet<>();
+        for (String host : config.getProperty(PREFIX + STAY, "").split(",")) {
+            if (!host.isBlank()) {
+                stay.add(hostKey(host));
+            }
+        }
+        return new Handover(Map.copyOf(servers), bedrock, Set.copyOf(stay), List.copyOf(problems));
     }
 
     private static Target parse(String address) {
@@ -87,11 +101,28 @@ public final class Handover {
      * @param bedrockPlayer whether they play through Geyser/Floodgate
      */
     public Decision decide(String server, boolean switching, boolean canTransfer, boolean bedrockPlayer) {
+        return decide(server, switching, canTransfer, bedrockPlayer, null);
+    }
+
+    /** @param joinedBy the address the player typed to come in, if known — a {@code handover.stay} one keeps them here */
+    public Decision decide(String server, boolean switching, boolean canTransfer, boolean bedrockPlayer, String joinedBy) {
+        if (joinedBy != null && stay.contains(hostKey(joinedBy))) {
+            return Decision.RELAY;
+        }
         Target target = server == null ? null : servers.get(server.toLowerCase(Locale.ROOT));
         if (target == null || !switching || !canTransfer || (bedrockPlayer && !bedrock)) {
             return Decision.RELAY;
         }
         return new Decision(true, target.host(), target.port());
+    }
+
+    private static String hostKey(String host) {
+        String key = host.strip().toLowerCase(Locale.ROOT);
+        return key.endsWith(".") ? key.substring(0, key.length() - 1) : key;
+    }
+
+    Set<String> stay() {
+        return stay;
     }
 
     /** Floodgate's ids for Bedrock players carry the XUID in the lower half; the upper half is zero. */

@@ -92,6 +92,9 @@ public final class NetworkProxy {
             bedrock = floodgate().orElse(Handover::isBedrock);
             log.info("Players going to these servers are handed over to their own proxy (Bedrock players too: {}): {}",
                     handover.bedrock(), handover.servers());
+            if (!handover.stay().isEmpty()) {
+                log.info("...except who came in by {}: they stay on this proxy.", handover.stay());
+            }
         }
         log.info("RainsNetworkProxy: a closing server's players wait on '{}' (shutdown messages {}), hub commands {}.",
                 hub, closing, commands);
@@ -154,6 +157,9 @@ public final class NetworkProxy {
                     # Bedrock players follow too; their Geyser needs the RainsGeyserHandover extension, else it
                     # drops them. false = Bedrock players stay relayed.
                     handover.bedrock=true
+                    # Addresses whose players are never handed over from here, e.g. a second way in closer to some
+                    # players: handover.stay=proxy-2.example.net
+                    #handover.stay=
                     """);
         }
         Properties config = new Properties();
@@ -204,7 +210,8 @@ public final class NetworkProxy {
         Handover.Decision decision = rules.decide(target.getServerInfo().getName(),
                 event.getPreviousServer() != null || player.getCurrentServer().isPresent(),
                 player.getProtocolVersion().noLessThan(ProtocolVersion.MINECRAFT_1_20_5),
-                bedrock.test(player.getUniqueId()));
+                bedrock.test(player.getUniqueId()),
+                player.getVirtualHost().map(InetSocketAddress::getHostString).orElse(null));
         if (!decision.handOver()) {
             return;
         }
