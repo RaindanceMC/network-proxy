@@ -52,7 +52,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- A real PostgreSQL with Core's own punishment table, for the ban check's tests. -->
+        <!-- A real PostgreSQL with Core's own tables, for the ban check's and the whitelist's tests. -->
         <dependency>
             <groupId>de.raindancer</groupId>
             <artifactId>RainsCore</artifactId>
@@ -64,6 +64,13 @@
             <artifactId>RainsCore</artifactId>
             <version>${rainscore.version}</version>
             <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <!-- The code table as Discord Link reads it: a code handed out here must be one its /link redeems. -->
+        <dependency>
+            <groupId>de.raindancer.modules</groupId>
+            <artifactId>discordlink-module</artifactId>
+            <version>${discordlink-module.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

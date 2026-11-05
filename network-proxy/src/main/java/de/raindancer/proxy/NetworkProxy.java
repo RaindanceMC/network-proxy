@@ -16,6 +16,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.slf4j.Logger;
 
@@ -45,9 +46,12 @@ public final class NetworkProxy {
     private KickRoute route;
     private String hub;
     private BanCheck bans;
+    private WhitelistGate whitelist;
+    private String whitelistMessage;
+    private String codeMessage;
     private volatile Handover handover;
     private Predicate<UUID> bedrock = Handover::isBedrock;
-    private volatile String reportedError;
+    private final Map<String, String> reportedErrors = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Inject
     public NetworkProxy(ProxyServer proxy, Logger log, @DataDirectory Path folder) {
@@ -76,6 +80,9 @@ public final class NetworkProxy {
         String host = config.getProperty("database.host", "").strip();
         if (host.isEmpty()) {
             log.warn("No database.host in config.properties (or RAINS_DB_HOST): bans are checked by each server only.");
+            if (Boolean.parseBoolean(config.getProperty("whitelist", "false").strip())) {
+                log.warn("whitelist=true needs database.host: the whitelist is left to each server.");
+            }
         } else {
             ProxyDatabase database = new ProxyDatabase(host,
                     Integer.parseInt(config.getProperty("database.port", "5432").strip()),
@@ -83,8 +90,20 @@ public final class NetworkProxy {
                     config.getProperty("database.user", "rains").strip(),
                     config.getProperty("database.password", ""),
                     config.getProperty("database.sslmode", "prefer").strip());
-            bans = new BanCheck(database, config.getProperty("database.namespace", "core").strip());
+            String core = config.getProperty("database.namespace", "core").strip();
+            bans = new BanCheck(database, core);
             log.info("Bans are checked at the door in {}.", database.describe());
+            if (Boolean.parseBoolean(config.getProperty("whitelist", "false").strip())) {
+                whitelist = new WhitelistGate(database::connect, core,
+                        config.getProperty("whitelist.codes-namespace", "discordlink").strip(),
+                        Long.parseLong(config.getProperty("whitelist.code-minutes", "30").strip()) * 60_000L,
+                        new java.security.SecureRandom(), System::currentTimeMillis);
+                whitelistMessage = config.getProperty("whitelist.message", DEFAULT_NOT_WHITELISTED);
+                codeMessage = config.getProperty("whitelist.message-code", DEFAULT_CODE);
+                WhitelistGate gate = whitelist;
+                proxy.getScheduler().buildTask(this, gate::refresh).repeat(java.time.Duration.ofSeconds(30)).schedule();
+                log.info("The network's whitelist is checked at the door; who is not on it gets a Discord /link code.");
+            }
         }
         handover = Handover.from(config);
         handover.problems().forEach(problem -> log.warn("Not handed over, the line is wrong: {}", problem));
@@ -160,6 +179,16 @@ public final class NetworkProxy {
                     # Addresses whose players are never handed over from here, e.g. a second way in closer to some
                     # players: handover.stay=proxy-2.example.net
                     #handover.stay=
+                    # The network's whitelist (RainsCore's, one list for every server), checked here before any server
+                    # sees the player; needs database.host. Who is not on it is turned away with a Discord /link code
+                    # while Discord Link's bot runs somewhere, else with whitelist.message. MiniMessage; <code> and
+                    # <minutes> in whitelist.message-code. false = every server checks its own.
+                    whitelist=false
+                    whitelist.code-minutes=30
+                    # Where Discord Link keeps its codes: the namespace "discordlink" unless its database says otherwise.
+                    whitelist.codes-namespace=discordlink
+                    #whitelist.message=<red>You are not whitelisted on this network.</red>
+                    #whitelist.message-code=<white>Not on the whitelist yet.</white> <gray>Type</gray> /link <code> <gray>in Discord.</gray>
                     """);
         }
         Properties config = new Properties();
@@ -177,23 +206,59 @@ public final class NetworkProxy {
         return config;
     }
 
-    @Subscribe
+    /** Early: who may not come in at all is refused before another plugin acts on the login (wakes a server). */
+    @Subscribe(order = PostOrder.EARLY)
     public EventTask onLogin(LoginEvent event) {
         BanCheck check = bans;
+        WhitelistGate gate = whitelist;
         if (check == null || !event.getResult().isAllowed()) {
             return null;
         }
         return EventTask.async(() -> {
             long now = System.currentTimeMillis();
-            Optional<BanCheck.Ban> ban = check.activeBan(event.getPlayer().getUniqueId(), now);
+            Player player = event.getPlayer();
+            Optional<BanCheck.Ban> ban = check.activeBan(player.getUniqueId(), now);
             ban.ifPresent(found -> event.setResult(ResultedEvent.ComponentResult.denied(BanScreen.component(found, now))));
-            String error = check.lastError().orElse(null);
-            if (error != null && !error.equals(reportedError)) {
-                log.warn("Bans could not be checked at the door ({}); the servers still check them.", error);
+            report(check.lastError().orElse(null), "Bans");
+            if (ban.isPresent() || gate == null) {
+                return;
             }
-            reportedError = error;
+            WhitelistGate.Verdict verdict = gate.check(player.getUniqueId(), player.getUsername());
+            report(gate.lastError().orElse(null), "The whitelist");
+            switch (verdict.kind()) {
+                case CODE -> {
+                    log.info("{} ({}) is not on the network's whitelist: turned away with a /link code.",
+                            player.getUsername(), player.getUniqueId());
+                    event.setResult(ResultedEvent.ComponentResult.denied(MiniMessage.miniMessage().deserialize(codeMessage,
+                            Placeholder.unparsed("code", verdict.code()),
+                            Placeholder.unparsed("minutes", String.valueOf(gate.codeMinutes())))));
+                }
+                case REFUSED -> {
+                    log.info("{} ({}) is not on the network's whitelist: turned away.", player.getUsername(),
+                            player.getUniqueId());
+                    event.setResult(ResultedEvent.ComponentResult.denied(
+                            MiniMessage.miniMessage().deserialize(whitelistMessage)));
+                }
+                case IN, UNKNOWN -> {
+                }
+            }
         });
     }
+
+    /** Once per new error, not once per login. */
+    private void report(String error, String what) {
+        String before = error == null ? reportedErrors.remove(what) : reportedErrors.put(what, error);
+        if (error != null && !error.equals(before)) {
+            log.warn("{} could not be checked at the door ({}); the servers still check.", what, error);
+        }
+    }
+
+    static final String DEFAULT_NOT_WHITELISTED = "<red>You are not whitelisted on this network.</red>";
+    static final String DEFAULT_CODE = "<white><bold>You're not on the whitelist yet.</bold></white><newline><newline>"
+            + "<gray>Type this in <#5865F2>Lilly's Discord</#5865F2>:</gray><newline><newline>"
+            + "<white><bold>/link <code></bold></white><newline><newline>"
+            + "<gray>The bot whitelists you and links your account. Then just join again.<newline>"
+            + "<dark_gray>The code lasts <minutes> minutes.";
 
     /** Late, so a plugin that refuses the move has had its say first. */
     @Subscribe(order = PostOrder.LATE)

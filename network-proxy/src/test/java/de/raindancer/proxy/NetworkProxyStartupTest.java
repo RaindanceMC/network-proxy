@@ -61,4 +61,32 @@ class NetworkProxyStartupTest {
         verify(commands, never()).register(any(CommandMeta.class), any(HubCommand.class));
         verify(log).info(org.mockito.ArgumentMatchers.contains("Bans are checked at the door"), any(Object.class));
     }
+
+    @Test
+    @DisplayName("whitelist=true with a database: checked at the door, the list read again every half minute")
+    void whitelistAtTheDoor() throws Exception {
+        Path data = folder.resolve("rainsnetworkproxy");
+        Files.createDirectories(data);
+        Files.writeString(data.resolve("config.properties"), "hub-commands=\ndatabase.host=127.0.0.1\ndatabase.port=1\nwhitelist=true\n");
+        com.velocitypowered.api.scheduler.Scheduler scheduler = mock(com.velocitypowered.api.scheduler.Scheduler.class);
+        com.velocitypowered.api.scheduler.Scheduler.TaskBuilder task =
+                mock(com.velocitypowered.api.scheduler.Scheduler.TaskBuilder.class, RETURNS_SELF);
+        when(proxy.getScheduler()).thenReturn(scheduler);
+        when(scheduler.buildTask(any(), any(Runnable.class))).thenReturn(task);
+        new NetworkProxy(proxy, log, data).onStart(mock(ProxyInitializeEvent.class));
+
+        verify(task).repeat(java.time.Duration.ofSeconds(30));
+        verify(log).info(org.mockito.ArgumentMatchers.contains("whitelist is checked at the door"));
+    }
+
+    @Test
+    @DisplayName("whitelist=true without a database says why it is left to the servers")
+    void whitelistWithoutDatabase() throws Exception {
+        Path data = folder.resolve("rainsnetworkproxy");
+        Files.createDirectories(data);
+        Files.writeString(data.resolve("config.properties"), "hub-commands=\nwhitelist=true\n");
+        new NetworkProxy(proxy, log, data).onStart(mock(ProxyInitializeEvent.class));
+
+        verify(log).warn(org.mockito.ArgumentMatchers.contains("whitelist=true needs database.host"));
+    }
 }
