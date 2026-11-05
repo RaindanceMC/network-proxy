@@ -14,7 +14,7 @@ class BanScreenTest {
     void text() {
         assertThat(BanScreen.text(new BanCheck.Ban("griefing", Optional.of(1_000L + 3 * 86_400_000L + 3_600_000L)), 1_000L))
                 .contains("griefing").contains("3 days, 1 hour");
-        assertThat(BanScreen.text(new BanCheck.Ban("x", Optional.empty()), 0)).contains("until it is lifted");
+        assertThat(BanScreen.text(new BanCheck.Ban("x", Optional.empty()), 0)).contains("does not expire");
         assertThat(BanScreen.text(new BanCheck.Ban("x", Optional.of(30_000L)), 0)).contains("less than a minute");
     }
 

@@ -2,6 +2,7 @@ package de.raindancer.proxy;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.util.ArrayList;
@@ -14,15 +15,30 @@ public final class BanScreen {
     }
 
     public static Component component(BanCheck.Ban ban, long now) {
-        return Component.text(text(ban, now), NamedTextColor.RED);
+        return component(ban, now, LeaveFrame.from(new java.util.Properties()));
+    }
+
+    /** In the network's join/kick frame, worded like RainsCore's own ban screen. */
+    public static Component component(BanCheck.Ban ban, long now, LeaveFrame frame) {
+        String reason = MiniMessage.miniMessage().stripTags(ban.reason() == null ? "" : ban.reason()).strip();
+        var body = Component.text()
+                .append(Component.text("You are banned", NamedTextColor.RED, TextDecoration.BOLD))
+                .append(Component.newline()).append(Component.newline());
+        if (!reason.isEmpty()) {
+            body.append(Component.text("Reason: ", NamedTextColor.GRAY)).append(Component.text(reason, NamedTextColor.WHITE))
+                    .append(Component.newline());
+        }
+        body.append(ban.endsAt()
+                .map(end -> Component.text("Ends in ", NamedTextColor.GRAY)
+                        .append(Component.text(duration(end - now), NamedTextColor.WHITE)))
+                .orElseGet(() -> Component.text("This ban does not expire.", NamedTextColor.GRAY)));
+        return frame.around(body.build());
     }
 
     /** Plain text; a reason with markup in it is shown without it. */
     public static String text(BanCheck.Ban ban, long now) {
-        String reason = MiniMessage.miniMessage().stripTags(ban.reason() == null ? "" : ban.reason()).strip();
-        String lasts = ban.endsAt().map(end -> "Ends in " + duration(end - now) + ".")
-                .orElse("This ban lasts until it is lifted.");
-        return "You are banned from this network.\n\n" + (reason.isEmpty() ? "" : "Reason: " + reason + "\n") + lasts;
+        return net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
+                .serialize(component(ban, now));
     }
 
     static String duration(long millis) {

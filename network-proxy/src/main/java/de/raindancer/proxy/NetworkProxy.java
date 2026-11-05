@@ -45,6 +45,7 @@ public final class NetworkProxy {
     private final Path folder;
     private KickRoute route;
     private String hub;
+    private LeaveFrame frame = LeaveFrame.from(new Properties());
     private BanCheck bans;
     private WhitelistGate whitelist;
     private String whitelistMessage;
@@ -64,6 +65,7 @@ public final class NetworkProxy {
     public void onStart(ProxyInitializeEvent event) throws IOException {
         Properties config = config(folder.resolve("config.properties"), System.getenv());
         hub = config.getProperty("hub", "hub").strip();
+        frame = LeaveFrame.from(config);
         List<String> closing = new ArrayList<>();
         for (String message : config.getProperty("shutdown-messages", "Server closed").split("\\|")) {
             if (!message.isBlank()) {
@@ -189,6 +191,11 @@ public final class NetworkProxy {
                     whitelist.codes-namespace=discordlink
                     #whitelist.message=<red>You are not whitelisted on this network.</red>
                     #whitelist.message-code=<white>Not on the whitelist yet.</white> <gray>Type</gray> /link <code> <gray>in Discord.</gray>
+                    # Screens the proxy shows (a ban, the whitelist): the same frame as the servers' "Join and kick screens" -
+                    # the name on top in capitals, its tag gradient (two colours), a grey footer. Blank title = no frame.
+                    screens.title=
+                    screens.footer=
+                    screens.gradient=#C9A0FF,#7C5CBF
                     """);
         }
         Properties config = new Properties();
@@ -218,7 +225,7 @@ public final class NetworkProxy {
             long now = System.currentTimeMillis();
             Player player = event.getPlayer();
             Optional<BanCheck.Ban> ban = check.activeBan(player.getUniqueId(), now);
-            ban.ifPresent(found -> event.setResult(ResultedEvent.ComponentResult.denied(BanScreen.component(found, now))));
+            ban.ifPresent(found -> event.setResult(ResultedEvent.ComponentResult.denied(BanScreen.component(found, now, frame))));
             report(check.lastError().orElse(null), "Bans");
             if (ban.isPresent() || gate == null) {
                 return;
@@ -229,15 +236,15 @@ public final class NetworkProxy {
                 case CODE -> {
                     log.info("{} ({}) is not on the network's whitelist: turned away with a /link code.",
                             player.getUsername(), player.getUniqueId());
-                    event.setResult(ResultedEvent.ComponentResult.denied(MiniMessage.miniMessage().deserialize(codeMessage,
-                            Placeholder.unparsed("code", verdict.code()),
-                            Placeholder.unparsed("minutes", String.valueOf(gate.codeMinutes())))));
+                    event.setResult(ResultedEvent.ComponentResult.denied(frame.around(MiniMessage.miniMessage().deserialize(
+                            codeMessage, Placeholder.unparsed("code", verdict.code()),
+                            Placeholder.unparsed("minutes", String.valueOf(gate.codeMinutes()))))));
                 }
                 case REFUSED -> {
                     log.info("{} ({}) is not on the network's whitelist: turned away.", player.getUsername(),
                             player.getUniqueId());
                     event.setResult(ResultedEvent.ComponentResult.denied(
-                            MiniMessage.miniMessage().deserialize(whitelistMessage)));
+                            frame.around(MiniMessage.miniMessage().deserialize(whitelistMessage))));
                 }
                 case IN, UNKNOWN -> {
                 }
@@ -253,11 +260,13 @@ public final class NetworkProxy {
         }
     }
 
-    static final String DEFAULT_NOT_WHITELISTED = "<red>You are not whitelisted on this network.</red>";
-    static final String DEFAULT_CODE = "<white><bold>You're not on the whitelist yet.</bold></white><newline><newline>"
-            + "<gray>Type this in <#5865F2>Lilly's Discord</#5865F2>:</gray><newline><newline>"
-            + "<white><bold>/link <code></bold></white><newline><newline>"
-            + "<gray>The bot whitelists you and links your account. Then just join again.<newline>"
+    static final String DEFAULT_NOT_WHITELISTED = "<white><bold>You're not on the whitelist</bold></white><newline><newline>"
+            + "<gray>Ask the staff to add you.";
+    /** Worded like Discord Link's own code screen (discordlink.join.kick), so both doors look the same. */
+    static final String DEFAULT_CODE = "<white><bold>You're not on the whitelist yet</bold></white><newline><newline>"
+            + "<gray>Type this in <#5865F2>Lilly's Discord</#5865F2>:</gray><newline>"
+            + "<light_purple><bold>/link <code></bold></light_purple><newline><newline>"
+            + "<gray>The bot whitelists you. Then join again.<newline>"
             + "<dark_gray>The code lasts <minutes> minutes.";
 
     /** Late, so a plugin that refuses the move has had its say first. */
