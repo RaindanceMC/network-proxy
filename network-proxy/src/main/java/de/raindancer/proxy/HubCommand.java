@@ -9,11 +9,15 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * {@code /hub} (and {@code /lobby}): back to the hub from anywhere on the network. On the proxy, so it answers before
  * any backend sees the command — RainsCore's own {@code /hub} panel stays reachable as {@code /smp}. On the hub
  * itself it is handed to the hub as its spawn command: a parkour course there is a world of its own, still "the hub".
+ * {@code /hub <name>} goes to another hub ({@code hubs.<name>} in the config, e.g. the beta's); whether they may enter
+ * it is the gate's business ({@link Gates}), plain {@code /hub} brings them back.
  */
 final class HubCommand implements SimpleCommand {
 
@@ -24,12 +28,27 @@ final class HubCommand implements SimpleCommand {
     private final ProxyServer proxy;
     private final String hub;
     private final String spawn;
+    private final Map<String, String> hubs;
 
     /** @param spawnCommand what takes somebody on the hub to its spawn, blank = nothing does */
     HubCommand(ProxyServer proxy, String hub, String spawnCommand) {
+        this(proxy, hub, spawnCommand, Map.of());
+    }
+
+    /** @param hubs more hubs by name: {@code /hub <name>} */
+    HubCommand(ProxyServer proxy, String hub, String spawnCommand, Map<String, String> hubs) {
         this.proxy = proxy;
         this.hub = hub;
         this.spawn = chatInput(spawnCommand);
+        this.hubs = hubs;
+    }
+
+    /** No argument = the main hub; a known name = that hub; anything else = none. */
+    static Optional<String> target(List<String> args, String hub, Map<String, String> hubs) {
+        if (args.isEmpty()) {
+            return Optional.of(hub);
+        }
+        return Optional.ofNullable(hubs.get(args.getFirst().toLowerCase(Locale.ROOT)));
     }
 
     /**
@@ -67,6 +86,13 @@ final class HubCommand implements SimpleCommand {
     @Override
     public void execute(Invocation invocation) {
         Player player = invocation.source() instanceof Player p ? p : null;
+        Optional<String> wanted = target(List.of(invocation.arguments()), hub, hubs);
+        if (wanted.isEmpty()) {
+            invocation.source().sendMessage(MM.deserialize("<red>There's no hub called <white><name></white>.</red>",
+                    net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("name", invocation.arguments()[0])));
+            return;
+        }
+        String hub = wanted.get();
         String current = player == null ? null
                 : player.getCurrentServer().map(ServerConnection::getServerInfo).map(info -> info.getName()).orElse(null);
         switch (answer(player != null, current, hub, spawn)) {
@@ -78,6 +104,26 @@ final class HubCommand implements SimpleCommand {
                     server -> player.createConnectionRequest(server).fireAndForget(),
                     () -> player.sendMessage(MM.deserialize("<red>The hub isn't set up on this network.</red>")));
         }
+    }
+
+    @Override
+    public List<String> suggest(Invocation invocation) {
+        String[] args = invocation.arguments();
+        if (args.length > 1 || hubs.isEmpty()) {
+            return List.of();
+        }
+        String typed = args.length == 0 ? "" : args[0].toLowerCase(Locale.ROOT);
+        Player player = invocation.source() instanceof Player p ? p : null;
+        return hubs.keySet().stream().filter(name -> name.startsWith(typed))
+                .filter(name -> player == null || mayEnter.test(player, hubs.get(name))).sorted().toList();
+    }
+
+    /** Who sees which hub names offered; the gate still decides at the door. */
+    private java.util.function.BiPredicate<Player, String> mayEnter = (player, server) -> true;
+
+    HubCommand offering(java.util.function.BiPredicate<Player, String> mayEnter) {
+        this.mayEnter = mayEnter;
+        return this;
     }
 
     @Override

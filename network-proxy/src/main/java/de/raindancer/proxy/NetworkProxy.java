@@ -51,7 +51,12 @@ public final class NetworkProxy {
     private String whitelistMessage;
     private String codeMessage;
     private volatile Handover handover;
+    private Gates gates = Gates.from(new Properties());
+    private ServerAccess access;
+    private String gateMessage;
     private Predicate<UUID> bedrock = Handover::isBedrock;
+    private WhitelistGate.Connector databaseConnector;
+    private final java.util.concurrent.atomic.AtomicBoolean prepared = new java.util.concurrent.atomic.AtomicBoolean();
     private final Map<String, String> reportedErrors = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Inject
@@ -73,17 +78,24 @@ public final class NetworkProxy {
             }
         }
         route = new KickRoute(hub, closing);
+        gates = Gates.from(config);
+        gates.problems().forEach(problem -> log.warn("Not a gate, the line is wrong: {}", problem));
+        gateMessage = config.getProperty("gates.message", DEFAULT_GATE);
         List<String> commands = HubCommand.names(config.getProperty("hub-commands"));
         if (!commands.isEmpty()) {
             proxy.getCommandManager().register(proxy.getCommandManager().metaBuilder(commands.getFirst())
                     .aliases(commands.subList(1, commands.size()).toArray(String[]::new)).plugin(this).build(),
-                    new HubCommand(proxy, hub, config.getProperty("hub-spawn-command", "spawn")));
+                    new HubCommand(proxy, hub, config.getProperty("hub-spawn-command", "spawn"), gates.hubs())
+                            .offering(this::mayOffer));
         }
         String host = config.getProperty("database.host", "").strip();
         if (host.isEmpty()) {
             log.warn("No database.host in config.properties (or RAINS_DB_HOST): bans are checked by each server only.");
             if (Boolean.parseBoolean(config.getProperty("whitelist", "false").strip())) {
                 log.warn("whitelist=true needs database.host: the whitelist is left to each server.");
+            }
+            if (!gates.isEmpty()) {
+                log.warn("gate.* needs database.host for its lists: only players with a list's permission get in.");
             }
         } else {
             ProxyDatabase database = new ProxyDatabase(host,
@@ -94,6 +106,7 @@ public final class NetworkProxy {
                     config.getProperty("database.sslmode", "prefer").strip());
             String core = config.getProperty("database.namespace", "core").strip();
             bans = new BanCheck(database, core);
+            databaseConnector = database::connect;
             log.info("Bans are checked at the door in {}.", database.describe());
             if (Boolean.parseBoolean(config.getProperty("whitelist", "false").strip())) {
                 whitelist = new WhitelistGate(database::connect, core,
@@ -105,6 +118,31 @@ public final class NetworkProxy {
                 WhitelistGate gate = whitelist;
                 proxy.getScheduler().buildTask(this, gate::refresh).repeat(java.time.Duration.ofSeconds(30)).schedule();
                 log.info("The network's whitelist is checked at the door; who is not on it gets a Discord /link code.");
+            }
+        }
+        if (!gates.isEmpty() && bans != null) {
+            ServerAccess lists = new ServerAccess(databaseConnector, config.getProperty("access.namespace", "network_proxy").strip(),
+                    config.getProperty("database.namespace", "core").strip(), System::currentTimeMillis);
+            access = lists;
+            proxy.getScheduler().buildTask(this, () -> {
+                if (prepared.compareAndSet(false, true)) {
+                    try {
+                        lists.prepare();
+                    } catch (java.sql.SQLException | RuntimeException failed) {
+                        prepared.set(false);
+                        report(failed.getMessage(), "The gates' lists");
+                        return;
+                    }
+                }
+                report(lists.refresh() ? null : lists.lastError().orElse(null), "The gates' lists");
+            }).repeat(java.time.Duration.ofSeconds(30)).schedule();
+            proxy.getCommandManager().register(proxy.getCommandManager().metaBuilder("tn").plugin(this).build(),
+                    new TnCommand(proxy, this, log, lists, gates, hub));
+        }
+        if (!gates.isEmpty()) {
+            for (String list : gates.lists()) {
+                log.info("Gate '{}': servers {} only for players on its list or with {}.", list, gates.serversOf(list),
+                        gates.permission(list));
             }
         }
         handover = Handover.from(config);
@@ -191,6 +229,16 @@ public final class NetworkProxy {
                     whitelist.codes-namespace=discordlink
                     #whitelist.message=<red>You are not whitelisted on this network.</red>
                     #whitelist.message-code=<white>Not on the whitelist yet.</white> <gray>Type</gray> /link <code> <gray>in Discord.</gray>
+                    # Servers only some may enter (a closed beta): gate.<server>=<list>, several servers may share a
+                    # list. On it: /tn <list> add|remove|list (permission thundernetwork.admin, or the console); only
+                    # names on the network's whitelist can be added. list.<list>.permission lets in without being on it
+                    # (default thundernetwork.list.<list>). Needs database.host; the lists live in access.namespace.
+                    #gate.beta=beta
+                    #list.beta.permission=thundernetwork.beta
+                    access.namespace=network_proxy
+                    #gates.message=<light_purple>The <list> is invite-only.</light_purple> <gray>Ask the staff if you want in.</gray>
+                    # More hubs for /hub <name>: hubs.<name>=<server>. Plain /hub goes back to hub=.
+                    #hubs.beta=betahub
                     # Screens the proxy shows (a ban, the whitelist): the same frame as the servers' "Join and kick screens" -
                     # the name on top in capitals, its tag gradient (two colours), a grey footer. Blank title = no frame.
                     screens.title=
@@ -268,6 +316,59 @@ public final class NetworkProxy {
             + "<light_purple><bold>/link <code></bold></light_purple><newline><newline>"
             + "<gray>The bot whitelists you. Then join again.<newline>"
             + "<dark_gray>The code lasts <minutes> minutes.";
+
+    /**
+     * A gated server: only who is on its list or has the list's permission. Refused on the way in (no server yet):
+     * the hub instead. Before the handover (late), which must not hand somebody over to a server they may not enter.
+     */
+    @Subscribe(order = PostOrder.NORMAL)
+    public EventTask onGate(ServerPreConnectEvent event) {
+        if (gates.isEmpty() || !event.getResult().isAllowed()) {
+            return null;
+        }
+        RegisteredServer target = event.getResult().getServer().orElse(null);
+        Optional<String> list = target == null ? Optional.empty() : gates.listOf(target.getServerInfo().getName());
+        if (list.isEmpty()) {
+            return null;
+        }
+        Player player = event.getPlayer();
+        if (player.hasPermission(gates.permission(list.get()))) {
+            return null;
+        }
+        ServerAccess lists = access;
+        return EventTask.async(() -> {
+            boolean in = lists != null && lists.check(list.get(), player.getUniqueId());
+            if (lists != null) {
+                report(lists.lastError().orElse(null), "The gates' lists");
+            }
+            if (in) {
+                return;
+            }
+            log.info("{} may not enter {} (not on the {} list).", player.getUsername(), target.getServerInfo().getName(),
+                    list.get());
+            player.sendMessage(MiniMessage.miniMessage().deserialize(gateMessage, Placeholder.unparsed("list", list.get())));
+            Optional<RegisteredServer> main = proxy.getServer(hub);
+            boolean arriving = event.getPreviousServer() == null && player.getCurrentServer().isEmpty();
+            if (arriving && main.isPresent() && !main.get().equals(target)) {
+                event.setResult(ServerPreConnectEvent.ServerResult.allowed(main.get()));
+            } else {
+                event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            }
+        });
+    }
+
+    /** For tab completion only: permission or the list read last, no database question. */
+    private boolean mayOffer(Player player, String server) {
+        Optional<String> list = gates.listOf(server);
+        if (list.isEmpty() || player.hasPermission(gates.permission(list.get()))) {
+            return true;
+        }
+        ServerAccess lists = access;
+        return lists != null && lists.remembered(list.get(), player.getUniqueId());
+    }
+
+    static final String DEFAULT_GATE = "<light_purple>The <list> is invite-only.</light_purple> "
+            + "<gray>Ask the staff if you want in.</gray>";
 
     /** Late, so a plugin that refuses the move has had its say first. */
     @Subscribe(order = PostOrder.LATE)

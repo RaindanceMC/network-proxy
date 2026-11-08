@@ -2,7 +2,7 @@
   "id": "rainsnetworkproxy",
   "name": "RainsNetworkProxy",
   "version": "${project.version}",
-  "description": "The Velocity side of a RainsCore network: bans refused at the door, /hub from anywhere, a closing server's players wait on the hub.",
+  "description": "The Velocity side of a RainsCore network: bans and the whitelist at the door, gated servers (/tn), /hub [name] from anywhere, a closing server's players wait on the hub.",
   "authors": ["Raindancer118"],
   "dependencies": [],
   "main": "de.raindancer.proxy.NetworkProxy"
