@@ -46,6 +46,7 @@ public final class NetworkProxy {
     private KickRoute route;
     private String hub;
     private LeaveFrame frame = LeaveFrame.from(new Properties());
+    private volatile Optional<LaunchGate> launch = Optional.empty();
     private BanCheck bans;
     private WhitelistGate whitelist;
     private String whitelistMessage;
@@ -71,6 +72,8 @@ public final class NetworkProxy {
         Properties config = config(folder.resolve("config.properties"), System.getenv());
         hub = config.getProperty("hub", "hub").strip();
         frame = LeaveFrame.from(config);
+        launch = LaunchGate.from(config);
+        launch.ifPresent(gate -> log.info("Closed until launch ({}); bypass: {}", java.time.Instant.ofEpochMilli(gate.at()), gate.bypassPermission()));
         List<String> closing = new ArrayList<>();
         for (String message : config.getProperty("shutdown-messages", "Server closed").split("\\|")) {
             if (!message.isBlank()) {
@@ -244,6 +247,10 @@ public final class NetworkProxy {
                     screens.title=
                     screens.footer=
                     screens.gradient=#C9A0FF,#7C5CBF
+                    # Before a launch: who lacks launch.bypass-permission gets a countdown screen. German time unless an offset is given.
+                    #launch.at=2026-11-27T16:00
+                    #launch.bypass-permission=rainsnetworkproxy.launch.bypass
+                    #launch.message=<white><bold>We're not open yet</bold></white>\\n\\n<gray>Opening in</gray> <gold><remaining></gold>\\n<gray><when></gray>
                     """);
         }
         Properties config = new Properties();
@@ -264,9 +271,20 @@ public final class NetworkProxy {
     /** Early: who may not come in at all is refused before another plugin acts on the login (wakes a server). */
     @Subscribe(order = PostOrder.EARLY)
     public EventTask onLogin(LoginEvent event) {
+        if (!event.getResult().isAllowed()) {
+            return null;
+        }
+        Optional<LaunchGate> opening = launch;
+        long at = System.currentTimeMillis();
+        if (opening.isPresent() && opening.get().closed(at) && !event.getPlayer().hasPermission(opening.get().bypassPermission())) {
+            log.info("{} ({}) tried to join before the launch: turned away with the countdown.", event.getPlayer().getUsername(),
+                    event.getPlayer().getUniqueId());
+            event.setResult(ResultedEvent.ComponentResult.denied(opening.get().screen(at, frame)));
+            return null;
+        }
         BanCheck check = bans;
         WhitelistGate gate = whitelist;
-        if (check == null || !event.getResult().isAllowed()) {
+        if (check == null) {
             return null;
         }
         return EventTask.async(() -> {
