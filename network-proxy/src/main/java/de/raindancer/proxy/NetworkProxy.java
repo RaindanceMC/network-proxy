@@ -7,6 +7,7 @@ import com.velocitypowered.api.event.ResultedEvent;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.player.KickedFromServerEvent;
+import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.network.ProtocolVersion;
@@ -48,6 +49,8 @@ public final class NetworkProxy {
     private LeaveFrame frame = LeaveFrame.from(new Properties());
     private volatile Optional<LaunchGate> launch = Optional.empty();
     private BanCheck bans;
+    private volatile NewcomerRoute newcomerRoute;
+    private volatile Newcomers newcomers;
     private WhitelistGate whitelist;
     private String whitelistMessage;
     private String codeMessage;
@@ -81,6 +84,7 @@ public final class NetworkProxy {
             }
         }
         route = new KickRoute(hub, closing);
+        newcomerRoute = NewcomerRoute.from(config);
         gates = Gates.from(config);
         gates.problems().forEach(problem -> log.warn("Not a gate, the line is wrong: {}", problem));
         gateMessage = config.getProperty("gates.message", DEFAULT_GATE);
@@ -94,6 +98,9 @@ public final class NetworkProxy {
         String host = config.getProperty("database.host", "").strip();
         if (host.isEmpty()) {
             log.warn("No database.host in config.properties (or RAINS_DB_HOST): bans are checked by each server only.");
+            if (newcomerRoute.isOn()) {
+                log.warn("newcomers.server needs database.host to know who is new: nobody is sent there.");
+            }
             if (Boolean.parseBoolean(config.getProperty("whitelist", "false").strip())) {
                 log.warn("whitelist=true needs database.host: the whitelist is left to each server.");
             }
@@ -110,6 +117,10 @@ public final class NetworkProxy {
             String core = config.getProperty("database.namespace", "core").strip();
             bans = new BanCheck(database, core);
             databaseConnector = database::connect;
+            if (newcomerRoute.isOn()) {
+                newcomers = new Newcomers(database::connect, core);
+                log.info("Players new to the network go to {} first.", newcomerRoute.server());
+            }
             log.info("Bans are checked at the door in {}.", database.describe());
             if (Boolean.parseBoolean(config.getProperty("whitelist", "false").strip())) {
                 whitelist = new WhitelistGate(database::connect, core,
@@ -227,6 +238,11 @@ public final class NetworkProxy {
                     # while Discord Link's bot runs somewhere, else with whitelist.message. MiniMessage; <code> and
                     # <minutes> in whitelist.message-code. false = every server checks its own.
                     whitelist=false
+                    # Players the network has never seen (no first-seen or last-seen row in database.namespace) start
+                    # on this server — a welcome server with the intro and tutorial, on a database of its own, which
+                    # sends them on when they are done. Needs database.host; unreachable at their first connect, they
+                    # go to Velocity's try list instead. Blank = off.
+                    newcomers.server=
                     whitelist.code-minutes=30
                     # Where Discord Link keeps its codes: the namespace "discordlink" unless its database says otherwise.
                     whitelist.codes-namespace=discordlink
@@ -414,8 +430,41 @@ public final class NetworkProxy {
                 decision.host(), decision.port());
     }
 
+    /** A player the network has never seen starts on the welcome server (newcomers.server). */
+    @Subscribe
+    public EventTask onChooseInitialServer(PlayerChooseInitialServerEvent event) {
+        NewcomerRoute rule = newcomerRoute;
+        Newcomers check = newcomers;
+        if (rule == null || !rule.isOn() || check == null) {
+            return null;
+        }
+        return EventTask.async(() -> {
+            Player player = event.getPlayer();
+            Optional<Boolean> known = check.known(player.getUniqueId());
+            report(check.lastError().orElse(null), "Newcomers");
+            Optional<RegisteredServer> welcome = proxy.getServer(rule.server());
+            rule.firstServer(known, welcome.isPresent()).flatMap(proxy::getServer).ifPresent(server -> {
+                event.setInitialServer(server);
+                log.info("{} is new to the network: first to {}.", player.getUsername(),
+                        server.getServerInfo().getName());
+            });
+        });
+    }
+
     @Subscribe
     public void onKicked(KickedFromServerEvent event) {
+        NewcomerRoute rule = newcomerRoute;
+        if (rule != null) {
+            Optional<RegisteredServer> instead = rule.rescue(event.getServer().getServerInfo().getName(),
+                    event.getPlayer().getCurrentServer().isPresent(),
+                    proxy.getConfiguration().getAttemptConnectionOrder()).flatMap(proxy::getServer);
+            if (instead.isPresent()) {
+                event.setResult(KickedFromServerEvent.RedirectPlayer.create(instead.get()));
+                log.info("{}: the welcome server could not be reached, on to {}.", event.getPlayer().getUsername(),
+                        instead.get().getServerInfo().getName());
+                return;
+            }
+        }
         if (route == null) {
             return;
         }
