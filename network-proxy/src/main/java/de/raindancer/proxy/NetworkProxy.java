@@ -465,6 +465,15 @@ public final class NetworkProxy {
                 return;
             }
         }
+        // The server could not be reached at all (a restart, nearly always): our own screen instead of Velocity's
+        // "Unable to connect you to smp", unless something below sends them somewhere instead.
+        boolean nowhereElse = event.getPlayer().getCurrentServer().isEmpty()
+                || event.getPlayer().getCurrentServer().get().getServer().equals(event.getServer());
+        if (UnreachableScreen.replaces(event.getServerKickReason(), nowhereElse)
+                && event.getResult() instanceof KickedFromServerEvent.DisconnectPlayer) {
+            event.setResult(KickedFromServerEvent.DisconnectPlayer.create(
+                    UnreachableScreen.component(event.getServer().getServerInfo().getName(), frame)));
+        }
         if (route == null) {
             return;
         }
