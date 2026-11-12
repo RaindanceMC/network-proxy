@@ -267,6 +267,11 @@ public final class NetworkProxy {
                     #launch.at=2026-11-27T16:00
                     #launch.bypass-permission=rainsnetworkproxy.launch.bypass
                     #launch.message=<white><bold>We're not open yet</bold></white>\\n\\n<gray>Opening in</gray> <gold><remaining></gold>\\n<gray><when></gray>
+                    # Early access (creators): who has launch.early-permission gets in launch.early-hours before the launch,
+                    # and until then sees launch.early-message, counting down to their own opening. 0 hours = none.
+                    #launch.early-permission=rainsnetworkproxy.launch.early
+                    #launch.early-hours=24
+                    #launch.early-message=<white><bold>Your early access is almost here</bold></white>\\n\\n<gray>You get in</gray> <gold><remaining></gold>\\n<gray><when></gray>
                     """);
         }
         Properties config = new Properties();
@@ -292,11 +297,25 @@ public final class NetworkProxy {
         }
         Optional<LaunchGate> opening = launch;
         long at = System.currentTimeMillis();
-        if (opening.isPresent() && opening.get().closed(at) && !event.getPlayer().hasPermission(opening.get().bypassPermission())) {
-            log.info("{} ({}) tried to join before the launch: turned away with the countdown.", event.getPlayer().getUsername(),
-                    event.getPlayer().getUniqueId());
-            event.setResult(ResultedEvent.ComponentResult.denied(opening.get().screen(at, frame)));
-            return null;
+        if (opening.isPresent() && opening.get().closed(at)) {
+            LaunchGate gate = opening.get();
+            Player player = event.getPlayer();
+            switch (gate.door(at, player.hasPermission(gate.bypassPermission()), player.hasPermission(gate.earlyPermission()))) {
+                case OPEN -> {
+                }
+                case EARLY_COUNTDOWN -> {
+                    log.info("{} ({}) has early access, not yet: turned away with their own countdown.",
+                            player.getUsername(), player.getUniqueId());
+                    event.setResult(ResultedEvent.ComponentResult.denied(gate.earlyScreen(at, frame)));
+                    return null;
+                }
+                case COUNTDOWN -> {
+                    log.info("{} ({}) tried to join before the launch: turned away with the countdown.",
+                            player.getUsername(), player.getUniqueId());
+                    event.setResult(ResultedEvent.ComponentResult.denied(gate.screen(at, frame)));
+                    return null;
+                }
+            }
         }
         BanCheck check = bans;
         WhitelistGate gate = whitelist;
