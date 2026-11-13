@@ -33,7 +33,7 @@ public record LeaveFrame(String title, String footer, TextColor from, TextColor 
     public Component around(Component body) {
         TextComponent.Builder screen = Component.text();
         if (!title.isBlank()) {
-            screen.append(header()).append(Component.newline())
+            screen.append(mark()).append(Component.newline())
                     .append(Component.text(DIVIDER, NamedTextColor.DARK_GRAY))
                     .append(Component.newline()).append(Component.newline());
         }
@@ -45,7 +45,8 @@ public record LeaveFrame(String title, String footer, TextColor from, TextColor 
         return screen.build();
     }
 
-    private Component header() {
+    /** "✦ HYADES ✦" in the frame's gradient — the network's name as the screens head it. */
+    Component mark() {
         String shown = MARK + " " + title.toUpperCase(Locale.ROOT) + " " + MARK;
         TextComponent.Builder header = Component.text().decoration(TextDecoration.BOLD, true);
         int[] points = shown.codePoints().toArray();

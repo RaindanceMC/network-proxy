@@ -60,6 +60,8 @@ class QueueEventTest {
                 queue.server=smp
                 queue.max=2
                 queue.limbo=welcome
+                screens.title=Hyades
+                screens.gradient=#6EC1EA,#F6B83D
                 """);
         plugin = new NetworkProxy(proxy, mock(Logger.class), folder);
         plugin.onStart(mock(ProxyInitializeEvent.class));
@@ -165,5 +167,64 @@ class QueueEventTest {
         when(old.getProtocolVersion()).thenReturn(com.velocitypowered.api.network.ProtocolVersion.MINECRAFT_1_20_3);
         assertThat(join(old, null).getResult().getServer()).contains(welcome);
         org.mockito.Mockito.verify(old, org.mockito.Mockito.never()).storeCookie(any(), any());
+    }
+
+    private Runnable queueTask() {
+        org.mockito.ArgumentCaptor<Runnable> task = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+        verify(proxy.getScheduler()).buildTask(any(), task.capture());
+        return task.getValue();
+    }
+
+    private static java.util.List<net.kyori.adventure.text.format.TextColor> colours(net.kyori.adventure.text.Component text) {
+        java.util.List<net.kyori.adventure.text.format.TextColor> found = new java.util.ArrayList<>();
+        if (text.color() != null) {
+            found.add(text.color());
+        }
+        text.children().forEach(child -> found.addAll(colours(child)));
+        return found;
+    }
+
+    private static String plain(net.kyori.adventure.text.Component text) {
+        return net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(text);
+    }
+
+    @Test
+    @DisplayName("waiting: their place in line fills the screen as a title, kept up while they wait")
+    void placeOnScreen() {
+        online(2);
+        Player ada = player("Ada", false, false, null);
+        when(proxy.getPlayer(ada.getUniqueId())).thenReturn(Optional.of(ada));
+        join(ada, null);
+        queueTask().run();
+        org.mockito.ArgumentCaptor<net.kyori.adventure.title.Title> shown =
+                org.mockito.ArgumentCaptor.forClass(net.kyori.adventure.title.Title.class);
+        verify(ada).showTitle(shown.capture());
+        assertThat(plain(shown.getValue().title())).contains("#1");
+        assertThat(shown.getValue().times().stay()).isGreaterThan(java.time.Duration.ofSeconds(2));
+        assertThat(plain(shown.getValue().subtitle())).contains("✦ HYADES ✦");
+        assertThat(colours(shown.getValue().title())).contains(net.kyori.adventure.text.format.TextColor.fromHexString("#6EC1EA"));
+        org.mockito.ArgumentCaptor<net.kyori.adventure.text.Component> bar =
+                org.mockito.ArgumentCaptor.forClass(net.kyori.adventure.text.Component.class);
+        verify(ada).sendActionBar(bar.capture());
+        assertThat(plain(bar.getValue())).contains("Prime goes first");
+    }
+
+    @Test
+    @DisplayName("a place frees up: moved in, and the screen clears")
+    void movedInScreenClears() {
+        online(2);
+        Player ada = player("Ada", false, false, null);
+        when(proxy.getPlayer(ada.getUniqueId())).thenReturn(Optional.of(ada));
+        join(ada, null);
+        online(1);
+        com.velocitypowered.api.proxy.ConnectionRequestBuilder request =
+                mock(com.velocitypowered.api.proxy.ConnectionRequestBuilder.class);
+        com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result done =
+                mock(com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result.class);
+        when(done.isSuccessful()).thenReturn(true);
+        when(request.connect()).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(done));
+        when(ada.createConnectionRequest(smp)).thenReturn(request);
+        queueTask().run();
+        verify(ada).clearTitle();
     }
 }

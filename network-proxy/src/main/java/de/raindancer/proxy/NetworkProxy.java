@@ -62,6 +62,8 @@ public final class NetworkProxy {
     private final java.util.Set<java.util.UUID> moving = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private String queueMessage = DEFAULT_QUEUE;
     private String queueBar = DEFAULT_QUEUE_BAR;
+    private String queueTitle = DEFAULT_QUEUE_TITLE;
+    private String queueSubtitle = DEFAULT_QUEUE_SUBTITLE;
     private ServerAccess access;
     private String gateMessage;
     private Predicate<UUID> bedrock = Handover::isBedrock;
@@ -166,8 +168,11 @@ public final class NetworkProxy {
             }
         }
         queueSettings = ServerQueue.Settings.from(config);
+        String gradient = "<gradient:" + frame.from().asHexString() + ":" + frame.to().asHexString() + ">";
         queueMessage = config.getProperty("queue.message", DEFAULT_QUEUE);
-        queueBar = config.getProperty("queue.bar", DEFAULT_QUEUE_BAR);
+        queueBar = config.getProperty("queue.bar", DEFAULT_QUEUE_BAR.replace("<frame>", gradient));
+        queueTitle = config.getProperty("queue.title", DEFAULT_QUEUE_TITLE.replace("<frame>", gradient));
+        queueSubtitle = config.getProperty("queue.subtitle", DEFAULT_QUEUE_SUBTITLE);
         queueSettings.ifPresent(settings -> {
             proxy.getScheduler().buildTask(this, this::moveQueue).repeat(java.time.Duration.ofSeconds(2)).schedule();
             log.info("Queue: {} takes {} players; then they wait on '{}', {} first, {} never waits.", settings.server(),
@@ -438,12 +443,20 @@ public final class NetworkProxy {
     static final String DEFAULT_GATE = "<light_purple>The <list> is invite-only.</light_purple> "
             + "<gray>Ask the staff if you want in.</gray>";
 
-    static final String DEFAULT_QUEUE = "<gold>Hyades is full</gold> <gray>(<online>/<max>).</gray> "
-            + "<white>You are #<position> in the queue</white><gray> and go in as soon as a place frees up. "
-            + "Prime members go first.</gray>";
-    static final String DEFAULT_QUEUE_BAR = "<gold>Queue</gold> <white>#<position></white><gray>/<size> · "
-            + "Prime goes first</gray>";
-    static final String DEFAULT_QUEUE_FULL = "<gold>Hyades is full</gold> <gray>(<online>/<max>). Try again in a moment.";
+    static final String DEFAULT_QUEUE = "<hyades> <gray>is full (<online>/<max>). You're</gray> <white><bold>#<position></bold></white>"
+            + " <gray>in line and go in by yourself as soon as a place frees up — Prime members go first.</gray>";
+    /*
+     * The waiting screen, in the frame of the network's other screens (screens.title / screens.gradient): <frame> is
+     * its gradient, <hyades> its "✦ HYADES ✦" mark. Over the welcome server's midnight sky (RainsWelcome 0.6.0).
+     */
+    static final String DEFAULT_QUEUE_TITLE = "<white>You're</white> <frame><bold>#<position></bold></gradient> <white>in line</white>";
+    static final String DEFAULT_QUEUE_SUBTITLE = "<hyades> <gray>is full · you're moved in by yourself</gray>";
+    static final String DEFAULT_QUEUE_BAR = "<dark_gray>━━━━━</dark_gray>  <gray><size> waiting · <frame>Prime</gradient> goes first</gray>"
+            + "  <dark_gray>━━━━━</dark_gray>";
+    /** Refreshed every two seconds, so it never fades between two refreshes. */
+    private static final net.kyori.adventure.title.Title.Times QUEUE_TITLE_TIMES = net.kyori.adventure.title.Title.Times.times(
+            java.time.Duration.ZERO, java.time.Duration.ofSeconds(5), java.time.Duration.ofMillis(500));
+    static final String DEFAULT_QUEUE_FULL = "<white>We're full right now</white> <gray>(<online>/<max>).</gray>\n\n<gray>Try again in a moment.</gray>";
 
     /**
      * The line in front of a full server ({@link ServerQueue}). Late, after the gates: somebody who may not enter at
@@ -477,9 +490,9 @@ public final class NetworkProxy {
         if (arriving && limbo.isEmpty()) {
             queue.leave(id);
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
-            player.disconnect(MiniMessage.miniMessage().deserialize(DEFAULT_QUEUE_FULL,
+            player.disconnect(frame.around(MiniMessage.miniMessage().deserialize(DEFAULT_QUEUE_FULL,
                     Placeholder.unparsed("online", String.valueOf(online)),
-                    Placeholder.unparsed("max", String.valueOf(settings.get().max()))));
+                    Placeholder.unparsed("max", String.valueOf(settings.get().max())))));
             return;
         }
         event.setResult(arriving ? ServerPreConnectEvent.ServerResult.allowed(limbo.get())
@@ -488,6 +501,7 @@ public final class NetworkProxy {
             leaveQueueNote(player);
         }
         player.sendMessage(MiniMessage.miniMessage().deserialize(queueMessage,
+                Placeholder.component("hyades", frame.mark()),
                 Placeholder.unparsed("online", String.valueOf(online)),
                 Placeholder.unparsed("max", String.valueOf(settings.get().max())),
                 Placeholder.unparsed("position", String.valueOf(queue.position(id)))));
@@ -532,15 +546,29 @@ public final class NetworkProxy {
                 moving.remove(next.get());
                 if (failure != null || result == null || !result.isSuccessful()) {
                     queue.join(next.get(), player.get().hasPermission(settings.get().priorityPermission()), Long.MIN_VALUE);
+                } else {
+                    player.get().clearTitle();
                 }
             });
             free--;
         }
         int size = queue.size();
         for (java.util.UUID waiting : queue.waiting()) {
-            proxy.getPlayer(waiting).ifPresent(player -> player.sendActionBar(MiniMessage.miniMessage().deserialize(queueBar,
-                    Placeholder.unparsed("position", String.valueOf(queue.position(waiting))),
-                    Placeholder.unparsed("size", String.valueOf(size)))));
+            proxy.getPlayer(waiting).ifPresent(player -> showPlace(player, queue.position(waiting), size));
+        }
+    }
+
+    private void showPlace(Player player, int position, int size) {
+        net.kyori.adventure.text.minimessage.tag.resolver.TagResolver places =
+                net.kyori.adventure.text.minimessage.tag.resolver.TagResolver.resolver(
+                        Placeholder.unparsed("position", String.valueOf(position)),
+                        Placeholder.unparsed("size", String.valueOf(size)),
+                        Placeholder.component("hyades", frame.mark()));
+        MiniMessage mini = MiniMessage.miniMessage();
+        player.showTitle(net.kyori.adventure.title.Title.title(mini.deserialize(queueTitle, places),
+                mini.deserialize(queueSubtitle, places), QUEUE_TITLE_TIMES));
+        if (!queueBar.isBlank()) {
+            player.sendActionBar(mini.deserialize(queueBar, places));
         }
     }
 
