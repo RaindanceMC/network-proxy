@@ -81,6 +81,7 @@ class QueueEventTest {
         when(player.getUsername()).thenReturn(name);
         when(player.hasPermission("rains.prime")).thenReturn(prime);
         when(player.hasPermission("rainsnetworkproxy.queue.bypass")).thenReturn(staff);
+        when(player.getProtocolVersion()).thenReturn(com.velocitypowered.api.network.ProtocolVersion.MAXIMUM_VERSION);
         if (on == null) {
             when(player.getCurrentServer()).thenReturn(Optional.empty());
         } else {
@@ -144,5 +145,25 @@ class QueueEventTest {
         ServerPreConnectEvent event = new ServerPreConnectEvent(player("Ada", false, false, null), welcome, null);
         plugin.onQueue(event);
         assertThat(event.getResult().getServer()).contains(welcome);
+    }
+
+    @Test
+    @DisplayName("parked on the waiting server: a note goes with them, so the welcome server skips its newcomer intro")
+    void noteForTheWelcomeServer() {
+        online(2);
+        Player ada = player("Ada", false, false, null);
+        join(ada, null);
+        verify(ada).storeCookie(net.kyori.adventure.key.Key.key("rainswelcome", "came-for"),
+                "queue".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Test
+    @DisplayName("a client too old for notes is still parked, just without one")
+    void oldClientNoNote() {
+        online(2);
+        Player old = player("Old", false, false, null);
+        when(old.getProtocolVersion()).thenReturn(com.velocitypowered.api.network.ProtocolVersion.MINECRAFT_1_20_3);
+        assertThat(join(old, null).getResult().getServer()).contains(welcome);
+        org.mockito.Mockito.verify(old, org.mockito.Mockito.never()).storeCookie(any(), any());
     }
 }

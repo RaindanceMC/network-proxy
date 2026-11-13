@@ -484,12 +484,30 @@ public final class NetworkProxy {
         }
         event.setResult(arriving ? ServerPreConnectEvent.ServerResult.allowed(limbo.get())
                 : ServerPreConnectEvent.ServerResult.denied());
+        if (arriving) {
+            leaveQueueNote(player);
+        }
         player.sendMessage(MiniMessage.miniMessage().deserialize(queueMessage,
                 Placeholder.unparsed("online", String.valueOf(online)),
                 Placeholder.unparsed("max", String.valueOf(settings.get().max())),
                 Placeholder.unparsed("position", String.valueOf(queue.position(id)))));
         log.info("{} queued for {} (#{} of {}{}).", player.getUsername(), target.getServerInfo().getName(),
                 queue.position(id), queue.size(), priority ? ", Prime" : "");
+    }
+
+    /** Read by RainsWelcome (its {@code came-for} note): a parked player skips the newcomer intro there. */
+    static final net.kyori.adventure.key.Key QUEUE_NOTE = net.kyori.adventure.key.Key.key("rainswelcome", "came-for");
+
+    private void leaveQueueNote(Player player) {
+        // Cookies exist from 1.20.5 on; older clients (and Bedrock through Geyser) simply get the welcome as before.
+        if (player.getProtocolVersion().lessThan(ProtocolVersion.MINECRAFT_1_20_5)) {
+            return;
+        }
+        try {
+            player.storeCookie(QUEUE_NOTE, "queue".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IllegalStateException | IllegalArgumentException notNow) {
+            log.debug("No queue note for {}: {}", player.getUsername(), notNow.getMessage());
+        }
     }
 
     /** Every two seconds: free places to the front of the line, everybody else their place on the action bar. */
