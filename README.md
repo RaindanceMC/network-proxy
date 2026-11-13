@@ -5,6 +5,8 @@
 
 Part of [RaindanceMC](https://github.com/RaindanceMC); built on [RainsCore](https://github.com/RaindanceMC/RainsCore) and the shared parent in [framework](https://github.com/RaindanceMC/framework). Split out of `rains-flexible-modules` on 16.10.2026, history kept.
 
+**Queue for a full server** (1.11.0): `queue.server=smp`, `queue.max=100`, `queue.limbo=<waiting server>` in config.properties. Once the server holds `queue.max` players, newcomers wait on the limbo server with their place on the action bar and are moved in the moment a slot frees; `rains.prime` goes first (`queue.priority-permission`), `rainsnetworkproxy.queue.bypass` never waits (`queue.bypass-permission`). Without a limbo server they are turned away instead. Texts: `queue.message`, `queue.bar`. The backend's own `max-players` must be above `queue.max`.
+
 ## Build
 
 ```

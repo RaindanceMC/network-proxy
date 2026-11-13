@@ -56,6 +56,12 @@ public final class NetworkProxy {
     private String codeMessage;
     private volatile Handover handover;
     private Gates gates = Gates.from(new Properties());
+    private volatile Optional<ServerQueue.Settings> queueSettings = Optional.empty();
+    private final ServerQueue queue = new ServerQueue();
+    /** Who the queue is moving in right now: let through once, past the line. */
+    private final java.util.Set<java.util.UUID> moving = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private String queueMessage = DEFAULT_QUEUE;
+    private String queueBar = DEFAULT_QUEUE_BAR;
     private ServerAccess access;
     private String gateMessage;
     private Predicate<UUID> bedrock = Handover::isBedrock;
@@ -159,6 +165,15 @@ public final class NetworkProxy {
                         gates.permission(list));
             }
         }
+        queueSettings = ServerQueue.Settings.from(config);
+        queueMessage = config.getProperty("queue.message", DEFAULT_QUEUE);
+        queueBar = config.getProperty("queue.bar", DEFAULT_QUEUE_BAR);
+        queueSettings.ifPresent(settings -> {
+            proxy.getScheduler().buildTask(this, this::moveQueue).repeat(java.time.Duration.ofSeconds(2)).schedule();
+            log.info("Queue: {} takes {} players; then they wait on '{}', {} first, {} never waits.", settings.server(),
+                    settings.max(), settings.limbo().isEmpty() ? "(no waiting server: turned away)" : settings.limbo(),
+                    settings.priorityPermission(), settings.bypassPermission());
+        });
         handover = Handover.from(config);
         handover.problems().forEach(problem -> log.warn("Not handed over, the line is wrong: {}", problem));
         if (!handover.servers().isEmpty()) {
@@ -422,6 +437,100 @@ public final class NetworkProxy {
 
     static final String DEFAULT_GATE = "<light_purple>The <list> is invite-only.</light_purple> "
             + "<gray>Ask the staff if you want in.</gray>";
+
+    static final String DEFAULT_QUEUE = "<gold>Hyades is full</gold> <gray>(<online>/<max>).</gray> "
+            + "<white>You are #<position> in the queue</white><gray> and go in as soon as a place frees up. "
+            + "Prime members go first.</gray>";
+    static final String DEFAULT_QUEUE_BAR = "<gold>Queue</gold> <white>#<position></white><gray>/<size> · "
+            + "Prime goes first</gray>";
+    static final String DEFAULT_QUEUE_FULL = "<gold>Hyades is full</gold> <gray>(<online>/<max>). Try again in a moment.";
+
+    /**
+     * The line in front of a full server ({@link ServerQueue}). Late, after the gates: somebody who may not enter at
+     * all never queues for it.
+     */
+    @Subscribe(order = PostOrder.LATE)
+    public void onQueue(ServerPreConnectEvent event) {
+        Optional<ServerQueue.Settings> settings = queueSettings;
+        if (settings.isEmpty() || !event.getResult().isAllowed()) {
+            return;
+        }
+        RegisteredServer target = event.getResult().getServer().orElse(null);
+        if (target == null || !target.getServerInfo().getName().equalsIgnoreCase(settings.get().server())) {
+            return;
+        }
+        Player player = event.getPlayer();
+        java.util.UUID id = player.getUniqueId();
+        boolean priority = player.hasPermission(settings.get().priorityPermission());
+        boolean wasMoving = moving.remove(id);
+        int online = target.getPlayersConnected().size();
+        if (ServerQueue.admit(online, settings.get().max(), player.hasPermission(settings.get().bypassPermission()),
+                wasMoving, queue.isEmpty())) {
+            queue.leave(id);
+            return;
+        }
+        // Moved in but the slot was taken in between: back to the very front.
+        queue.join(id, priority, wasMoving ? Long.MIN_VALUE : System.currentTimeMillis());
+        boolean arriving = event.getPreviousServer() == null && player.getCurrentServer().isEmpty();
+        Optional<RegisteredServer> limbo = settings.get().limbo().isEmpty() ? Optional.empty()
+                : proxy.getServer(settings.get().limbo());
+        if (arriving && limbo.isEmpty()) {
+            queue.leave(id);
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            player.disconnect(MiniMessage.miniMessage().deserialize(DEFAULT_QUEUE_FULL,
+                    Placeholder.unparsed("online", String.valueOf(online)),
+                    Placeholder.unparsed("max", String.valueOf(settings.get().max()))));
+            return;
+        }
+        event.setResult(arriving ? ServerPreConnectEvent.ServerResult.allowed(limbo.get())
+                : ServerPreConnectEvent.ServerResult.denied());
+        player.sendMessage(MiniMessage.miniMessage().deserialize(queueMessage,
+                Placeholder.unparsed("online", String.valueOf(online)),
+                Placeholder.unparsed("max", String.valueOf(settings.get().max())),
+                Placeholder.unparsed("position", String.valueOf(queue.position(id)))));
+        log.info("{} queued for {} (#{} of {}{}).", player.getUsername(), target.getServerInfo().getName(),
+                queue.position(id), queue.size(), priority ? ", Prime" : "");
+    }
+
+    /** Every two seconds: free places to the front of the line, everybody else their place on the action bar. */
+    private void moveQueue() {
+        Optional<ServerQueue.Settings> settings = queueSettings;
+        Optional<RegisteredServer> target = settings.flatMap(s -> proxy.getServer(s.server()));
+        if (settings.isEmpty() || target.isEmpty()) {
+            return;
+        }
+        int free = settings.get().max() - target.get().getPlayersConnected().size() - moving.size();
+        while (free > 0) {
+            Optional<java.util.UUID> next = queue.next();
+            if (next.isEmpty()) {
+                break;
+            }
+            Optional<Player> player = proxy.getPlayer(next.get());
+            if (player.isEmpty()) {
+                continue;
+            }
+            moving.add(next.get());
+            player.get().createConnectionRequest(target.get()).connect().whenComplete((result, failure) -> {
+                moving.remove(next.get());
+                if (failure != null || result == null || !result.isSuccessful()) {
+                    queue.join(next.get(), player.get().hasPermission(settings.get().priorityPermission()), Long.MIN_VALUE);
+                }
+            });
+            free--;
+        }
+        int size = queue.size();
+        for (java.util.UUID waiting : queue.waiting()) {
+            proxy.getPlayer(waiting).ifPresent(player -> player.sendActionBar(MiniMessage.miniMessage().deserialize(queueBar,
+                    Placeholder.unparsed("position", String.valueOf(queue.position(waiting))),
+                    Placeholder.unparsed("size", String.valueOf(size)))));
+        }
+    }
+
+    @Subscribe
+    public void onQueueLeave(com.velocitypowered.api.event.connection.DisconnectEvent event) {
+        queue.leave(event.getPlayer().getUniqueId());
+        moving.remove(event.getPlayer().getUniqueId());
+    }
 
     /** Late, so a plugin that refuses the move has had its say first. */
     @Subscribe(order = PostOrder.LATE)
