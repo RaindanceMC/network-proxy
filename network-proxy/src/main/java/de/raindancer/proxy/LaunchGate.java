@@ -31,7 +31,7 @@ public record LaunchGate(long at, String bypassPermission, String message, Strin
     static final String DEFAULT_EARLY_MESSAGE = "<white><bold>Your early access is almost here</bold></white>"
             + "<newline><newline><gray>You get in</gray> <gold><bold><remaining></bold></gold> <gray>from now</gray>"
             + "<newline><gray><when></gray><newline><newline>"
-            + "<dark_gray>A day before everybody else — get your bearings and your cameras ready!";
+            + "<dark_gray>A day before everybody else. Get your bearings and your cameras ready.";
 
     static final ZoneId GERMANY = ZoneId.of("Europe/Berlin");
     static final String DEFAULT_PERMISSION = "rainsnetworkproxy.launch.bypass";

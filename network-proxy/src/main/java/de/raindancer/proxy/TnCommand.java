@@ -107,7 +107,7 @@ final class TnCommand implements SimpleCommand {
                 run(source, action, by);
             } catch (SQLException failed) {
                 log.warn("/tn {} {} failed: {}", action.list(), action.verb(), failed.getMessage());
-                source.sendMessage(MM.deserialize("<red>The database didn't answer - try again in a moment.</red>"));
+                source.sendMessage(MM.deserialize("<red>The database didn't answer. Try again in a moment.</red>"));
             }
         }).schedule();
     }
@@ -172,7 +172,7 @@ final class TnCommand implements SimpleCommand {
             return;
         }
         Optional<RegisteredServer> target = proxy.getServer(hub);
-        player.sendMessage(MM.deserialize("<gray>You're no longer in the <list> - back to the hub.</gray>",
+        player.sendMessage(MM.deserialize("<gray>You're no longer in the <list>. Back to the hub.</gray>",
                 Placeholder.unparsed("list", list)));
         target.ifPresent(server -> player.createConnectionRequest(server).fireAndForget());
     }

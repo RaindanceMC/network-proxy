@@ -259,7 +259,7 @@ public final class NetworkProxy {
                     # <minutes> in whitelist.message-code. false = every server checks its own.
                     whitelist=false
                     # Players the network has never seen (no first-seen or last-seen row in database.namespace) start
-                    # on this server — a welcome server with the intro and tutorial, on a database of its own, which
+                    # on this server (a welcome server with the intro and tutorial, on a database of its own), which
                     # sends them on when they are done. Needs database.host; unreachable at their first connect, they
                     # go to Velocity's try list instead. Blank = off.
                     newcomers.server=
@@ -278,7 +278,7 @@ public final class NetworkProxy {
                     #gates.message=<light_purple>The <list> is invite-only.</light_purple> <gray>Ask the staff if you want in.</gray>
                     # More hubs for /hub <name>: hubs.<name>=<server>. Plain /hub goes back to hub=.
                     #hubs.beta=betahub
-                    # Screens the proxy shows (a ban, the whitelist): the same frame as the servers' "Join and kick screens" -
+                    # Screens the proxy shows (a ban, the whitelist): the same frame as the servers' "Join and kick screens":
                     # the name on top in capitals, its tag gradient (two colours), a grey footer. Blank title = no frame.
                     screens.title=
                     screens.footer=
@@ -444,7 +444,7 @@ public final class NetworkProxy {
             + "<gray>Ask the staff if you want in.</gray>";
 
     static final String DEFAULT_QUEUE = "<hyades> <gray>is full (<online>/<max>). You're</gray> <white><bold>#<position></bold></white>"
-            + " <gray>in line and go in by yourself as soon as a place frees up — Prime members go first.</gray>";
+            + " <gray>in line. You go in automatically when a place frees up. Prime members go first.</gray>";
     /*
      * The waiting screen, in the frame of the network's other screens (screens.title / screens.gradient): <frame> is
      * its gradient, <hyades> its "✦ HYADES ✦" mark. Over the welcome server's midnight sky (RainsWelcome 0.6.0).
@@ -658,7 +658,7 @@ public final class NetworkProxy {
         switch (route.of(event.getServer().getServerInfo().getName(), onHub, reason)) {
             case HUB -> target.ifPresent(server -> event.setResult(KickedFromServerEvent.RedirectPlayer.create(server,
                     MiniMessage.miniMessage().deserialize("<light_purple>That server is restarting</light_purple> "
-                            + "<gray>— wait on the hub.</gray>"))));
+                            + "<gray>Wait on the hub.</gray>"))));
             case DISCONNECT -> event.setResult(KickedFromServerEvent.DisconnectPlayer.create(
                     event.getServerKickReason().orElse(Component.text("Disconnected"))));
             case LEAVE -> {

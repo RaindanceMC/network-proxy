@@ -32,7 +32,7 @@ public final class UnreachableScreen {
         Component body = Component.text()
                 .append(Component.text(named(server) + " is taking a short break", WARM, TextDecoration.BOLD))
                 .append(Component.newline()).append(Component.newline())
-                .append(Component.text("It is restarting or briefly down — it is", NamedTextColor.GRAY))
+                .append(Component.text("It is restarting or briefly down. It is", NamedTextColor.GRAY))
                 .append(Component.newline())
                 .append(Component.text("usually back within a minute.", NamedTextColor.GRAY))
                 .append(Component.newline()).append(Component.newline())
